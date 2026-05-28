@@ -22,9 +22,19 @@ export default async function handler(req, res) {
         `https://api.apify.com/v2/datasets/${datasetId}/items?token=${process.env.APIFY_TOKEN}&limit=30`
       );
       const items = await itemsRes.json();
+
+      if (!items || items.length === 0) {
+        return res.json({ status: 'FAILED', error: 'No posts found. This account may be private, have no posts, or the handle may be incorrect.' });
+      }
+
+      const isPrivate = items.some(p => p.isPrivate === true) || items.every(p => !p.likesCount && !p.commentsCount);
+      if (isPrivate) {
+        return res.json({ status: 'FAILED', error: 'This account appears to be private. IG Optimize only works with public accounts.' });
+      }
+
       res.json({ status: 'SUCCEEDED', items });
     } else if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
-      res.json({ status: 'FAILED' });
+      res.json({ status: 'FAILED', error: 'Scrape failed. Check that the handle is correct and the account is public.' });
     } else {
       res.json({ status: 'RUNNING' });
     }
