@@ -17,4 +17,315 @@
 }
 html,body { height:100%; background:var(--bg); color:var(--text); font-family:var(--font); -webkit-font-smoothing:antialiased; }
 #root { min-height:100%; }
-input,textarea,select { background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r); color:var(--text); font-family:var(--font); font-size:15px; padding:12px 14px; width:100%; outline:none; transition
+input,textarea,select { background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r); color:var(--text); font-family:var(--font); font-size:15px; padding:12px 14px; width:100%; outline:none; transition:border-color 0.15s; }
+input:focus,textarea:focus,select:focus { border-color:var(--border-h); }
+select option { background:var(--surface-2); }
+textarea { resize:vertical; }
+button { cursor:pointer; font-family:var(--font); }
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-thumb { background:var(--dim); border-radius:2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function ls(key,fallback=null){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback;}catch{return fallback;}}
+function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch{}}
+
+async function callChat(accessCode,system,user,maxTokens=1500){
+  const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,model:'claude-sonnet-4-20250514',max_tokens:maxTokens,system,messages:[{role:'user',content:user}]})});
+  const data=await res.json();
+  if(data.error)throw new Error(data.error.message||data.error);
+  const text=data.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+  const clean=text.replace(/```json\n?|```/g,'').trim();
+  const start=clean.indexOf('{'),end=clean.lastIndexOf('}');
+  if(start===-1)throw new Error('No JSON returned');
+  return JSON.parse(clean.slice(start,end+1));
+}
+
+function summarizePosts(posts){
+  if(!posts||!posts.length)return'No post data.';
+  const byType={};
+  posts.forEach(p=>{const t=p.type==='Sidecar'?'Carousel':p.type==='Video'?'Reel':'Photo';if(!byType[t])byType[t]={count:0,likes:0,comments:0};byType[t].count++;byType[t].likes+=p.likesCount||0;byType[t].comments+=p.commentsCount||0;});
+  return Object.entries(byType).map(([t,d])=>`${t}: ${d.count} posts, avg ${Math.round(d.likes/d.count)} likes, avg ${Math.round(d.comments/d.count)} comments`).join('. ');
+}
+
+function topPosts(posts,n=5){
+  if(!posts||!posts.length)return'';
+  return[...posts].sort((a,b)=>(b.likesCount||0)-(a.likesCount||0)).slice(0,n).map(p=>{const t=p.type==='Sidecar'?'Carousel':p.type==='Video'?'Reel':'Photo';return`${t}: ${p.likesCount||0} likes — "${(p.caption||'').slice(0,80)}"`}).join('\n');
+}
+
+function Btn({onClick,disabled,children,ghost,danger,full,style:extra}){
+  const bg=ghost?'transparent':danger?'transparent':disabled?'var(--surface-3)':'var(--accent)';
+  const border=ghost?'1px solid var(--border)':danger?'1px solid var(--red)':'none';
+  const color=ghost?'var(--muted)':danger?'var(--red)':'white';
+  return<button onClick={onClick} disabled={disabled} style={{background:bg,border,borderRadius:'var(--r)',color,fontSize:15,fontWeight:500,opacity:disabled?0.5:1,padding:'13px 24px',transition:'opacity 0.15s',width:full?'100%':'auto',...extra}}>{children}</button>;
+}
+
+function Tag({children,color}){return<span style={{background:(color||'var(--accent)')+'22',borderRadius:6,color:color||'var(--accent)',fontSize:11,fontWeight:600,letterSpacing:'0.07em',padding:'3px 9px',textTransform:'uppercase'}}>{children}</span>;}
+
+function Card({children,accent,style:extra}){return<div style={{background:'var(--surface)',border:`1px solid ${accent?'rgba(232,98,42,0.3)':'var(--border)'}`,borderRadius:'var(--r)',padding:20,...extra}}>{children}</div>;}
+
+function Label({children}){return<div style={{color:'var(--accent)',fontSize:10,fontWeight:600,letterSpacing:'0.09em',marginBottom:10,textTransform:'uppercase'}}>{children}</div>;}
+
+function LoginScreen({onLogin}){
+  const[code,setCode]=useState('');const[err,setErr]=useState('');
+  function submit(){
+    if(!code.trim())return;
+    fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode:code.trim(),model:'claude-sonnet-4-20250514',max_tokens:10,messages:[{role:'user',content:'ping'}]})})
+    .then(r=>r.json()).then(data=>{if(data.error==='Invalid access code'){setErr('Wrong access code.');}else{onLogin(code.trim());}}).catch(()=>setErr('Connection error.'));
+  }
+  return(
+    <div style={{alignItems:'center',display:'flex',justifyContent:'center',minHeight:'100vh',padding:24}}>
+      <div style={{maxWidth:400,width:'100%'}}>
+        <div style={{marginBottom:48,textAlign:'center'}}>
+          <div style={{background:'linear-gradient(135deg,var(--accent),#f0943a)',borderRadius:16,display:'inline-flex',marginBottom:20,padding:'14px 18px'}}><span style={{color:'white',fontSize:22,fontWeight:700}}>IG</span></div>
+          <h1 style={{fontFamily:'var(--font-d)',fontSize:36,fontWeight:700,marginBottom:8}}>IG Optimize</h1>
+          <p style={{color:'var(--muted)',fontSize:15}}>Your Instagram growth system</p>
+        </div>
+        <Card>
+          <Label>Access Code</Label>
+          <input type="password" placeholder="Enter your access code" value={code} onChange={e=>{setCode(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&submit()} style={{marginBottom:12}} />
+          {err&&<p style={{color:'var(--red)',fontSize:13,marginBottom:12}}>{err}</p>}
+          <Btn onClick={submit} disabled={!code.trim()} full>Continue</Btn>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function SetupScreen({accessCode,onSetup}){
+  const[handle,setHandle]=useState('');const[loading,setLoading]=useState(false);const[status,setStatus]=useState('');const[err,setErr]=useState('');
+  async function start(){
+    if(!handle.trim())return;
+    const h=handle.replace('@','').trim();
+    setLoading(true);setErr('');
+    try{
+      setStatus('Starting Instagram scrape...');
+      const scrapeRes=await fetch('/api/scrape',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,handle:h})});
+      const scrapeData=await scrapeRes.json();
+      if(scrapeData.error)throw new Error(scrapeData.error);
+      const{runId,datasetId}=scrapeData;
+      let attempts=0,posts=null;
+      while(attempts<30){
+        await new Promise(r=>setTimeout(r,5000));
+        setStatus(`Pulling your posts... (${(attempts+1)*5}s)`);
+        const pollRes=await fetch('/api/poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,runId,datasetId})});
+        const pollData=await pollRes.json();
+        if(pollData.status==='SUCCEEDED'){posts=pollData.items;break;}
+        if(pollData.status==='FAILED')throw new Error('Scrape failed. Try again.');
+        attempts++;
+      }
+      if(!posts)throw new Error('Timed out. Try again.');
+      lsSet(`igo_posts_${h}`,posts);
+      onSetup(h,posts);
+    }catch(e){setErr(e.message);}
+    setLoading(false);setStatus('');
+  }
+  return(
+    <div style={{alignItems:'center',display:'flex',justifyContent:'center',minHeight:'100vh',padding:24}}>
+      <div style={{maxWidth:440,width:'100%'}}>
+        <div style={{marginBottom:40,textAlign:'center'}}>
+          <div style={{background:'linear-gradient(135deg,var(--accent),#f0943a)',borderRadius:16,display:'inline-flex',marginBottom:16,padding:'14px 18px'}}><span style={{color:'white',fontSize:22,fontWeight:700}}>IG</span></div>
+          <h2 style={{fontFamily:'var(--font-d)',fontSize:28,fontWeight:700,marginBottom:8}}>Let's get started</h2>
+          <p style={{color:'var(--muted)',fontSize:15,lineHeight:1.6}}>Enter your Instagram handle and we'll pull your recent posts to build your content profile.</p>
+        </div>
+        {loading?<Card accent><div style={{textAlign:'center',padding:'20px 0'}}><div style={{color:'var(--accent)',fontSize:15,fontWeight:500,marginBottom:8}}>{status}</div><p style={{color:'var(--muted)',fontSize:13}}>This takes about a minute. Hang tight.</p></div></Card>
+        :<Card>
+          <Label>Your Instagram Handle</Label>
+          <input placeholder="@yourhandle" value={handle} onChange={e=>{setHandle(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&start()} style={{marginBottom:12}} />
+          {err&&<p style={{color:'var(--red)',fontSize:13,marginBottom:12}}>{err}</p>}
+          <Btn onClick={start} disabled={!handle.trim()} full>Analyze My Account</Btn>
+        </Card>}
+      </div>
+    </div>
+  );
+}
+  function AnalyzeTab({accessCode,handle,posts}){
+  const[analysis,setAnalysis]=useState(()=>ls(`igo_analysis_${handle}`));
+  const[loading,setLoading]=useState(false);const[err,setErr]=useState('');
+  const typeColor={Reel:'#6b9bd2',Photo:'#e8622a',Story:'#5dba8a',Carousel:'#c4ae92'};
+  const byType={};
+  if(posts)posts.forEach(p=>{const t=p.type==='Sidecar'?'Carousel':p.type==='Video'?'Reel':'Photo';if(!byType[t])byType[t]={count:0,likes:0,comments:0};byType[t].count++;byType[t].likes+=p.likesCount||0;byType[t].comments+=p.commentsCount||0;});
+  async function runAnalysis(){
+    setLoading(true);setErr('');
+    const system=`You are an expert Instagram growth analyst. Analyze this account's post performance data and return specific, data-driven insights. Reference actual numbers. No generic advice. Return ONLY valid JSON: {"top_insight":"the single most important pattern","best_type":"which post type performs best and why with numbers","worst_type":"what underperforms","best_topics":["topic 1","topic 2","topic 3"],"hook_patterns":"what top-performing captions have in common","recommendations":["action 1","action 2","action 3"],"posting_frequency":"what the data suggests about optimal frequency"}`;
+    try{const result=await callChat(accessCode,system,`Account: @${handle}\n${summarizePosts(posts)}\nTop posts:\n${topPosts(posts)}`);setAnalysis(result);lsSet(`igo_analysis_${handle}`,result);}
+    catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  return(
+    <div>
+      <div style={{alignItems:'flex-start',display:'flex',gap:16,justifyContent:'space-between',marginBottom:24}}>
+        <p style={{color:'var(--muted)',fontSize:14,lineHeight:1.65}}>Performance breakdown from your last {posts?posts.length:0} posts.</p>
+        <Btn onClick={runAnalysis} disabled={loading} style={{whiteSpace:'nowrap',flexShrink:0}}>{loading?'Analyzing...':analysis?'Re-analyze':'Run Analysis'}</Btn>
+      </div>
+      {Object.keys(byType).length>0&&<div style={{display:'grid',gap:10,gridTemplateColumns:`repeat(${Object.keys(byType).length},1fr)`,marginBottom:20}}>{Object.entries(byType).map(([type,d])=><Card key={type}><div style={{color:typeColor[type]||'var(--accent)',fontSize:10,fontWeight:600,letterSpacing:'0.07em',marginBottom:10,textTransform:'uppercase'}}>{type}</div><div style={{fontFamily:'var(--font-d)',fontSize:24,fontWeight:700}}>{d.count}</div><div style={{color:'var(--muted)',fontSize:12,marginTop:4}}>posts</div><div style={{borderTop:'1px solid var(--border)',marginTop:10,paddingTop:10}}><div style={{fontSize:13}}>{Math.round(d.likes/d.count)} avg likes</div><div style={{color:'var(--muted)',fontSize:12}}>{Math.round(d.comments/d.count)} avg comments</div></div></Card>)}</div>}
+      {err&&<p style={{color:'var(--red)',fontSize:13,marginBottom:16}}>{err}</p>}
+      {analysis&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <Card accent><Label>Top Insight</Label><p style={{fontFamily:'var(--font-d)',fontSize:17,lineHeight:1.55}}>{analysis.top_insight}</p></Card>
+        <div style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr'}}><Card><Label>Winning Format</Label><p style={{fontSize:14,lineHeight:1.6}}>{analysis.best_type}</p></Card><Card><Label>Underperforming</Label><p style={{fontSize:14,lineHeight:1.6}}>{analysis.worst_type}</p></Card></div>
+        {analysis.hook_patterns&&<Card><Label>What Your Best Captions Have in Common</Label><p style={{fontSize:14,lineHeight:1.6}}>{analysis.hook_patterns}</p></Card>}
+        <Card><Label>Next Steps</Label>{analysis.recommendations&&analysis.recommendations.map((r,i)=><div key={i} style={{alignItems:'flex-start',display:'flex',gap:10,marginBottom:i<analysis.recommendations.length-1?10:0}}><span style={{color:'var(--accent)',flexShrink:0,fontWeight:700}}>{i+1}.</span><p style={{fontSize:14,lineHeight:1.6}}>{r}</p></div>)}</Card>
+      </div>}
+    </div>
+  );
+}
+
+function AutopilotTab({accessCode,handle,posts}){
+  const[loading,setLoading]=useState(false);const[plan,setPlan]=useState(null);const[err,setErr]=useState('');const[copied,setCopied]=useState(null);
+  const typeColor={Reel:'#6b9bd2',Photo:'#e8622a',Story:'#5dba8a',Carousel:'#c4ae92'};
+  async function generate(){
+    setLoading(true);setErr('');setPlan(null);
+    const dataContext=posts&&posts.length>0?`Real post data: ${summarizePosts(posts)}. Top posts:\n${topPosts(posts,3)}`:'No post data yet.';
+    const system=`You are a creative Instagram content strategist. Generate a specific weekly content plan for @${handle}. Use post data to inform priorities. Each brief should feel like a real creative assignment — specific locations, subjects, angles. NO em dashes. No cliches. Return ONLY valid JSON: {"week_theme":"evocative phrase","briefs":[{"day":"Monday","type":"Reel","location":"specific place","subject":"what to shoot","angle":"how to shoot it","story":"feeling to convey","caption_hook":"first line"},{"day":"Wednesday","type":"Photo","location":"...","subject":"...","angle":"...","story":"...","caption_hook":"..."},{"day":"Friday","type":"Reel","location":"...","subject":"...","angle":"...","story":"...","caption_hook":"..."},{"day":"Saturday","type":"Photo","location":"...","subject":"...","angle":"...","story":"...","caption_hook":"..."},{"day":"Sunday","type":"Carousel","location":"...","subject":"...","angle":"...","story":"...","caption_hook":"..."}],"whats_working":"specific observation","whats_not":"specific thing to pull back on","this_week_focus":"one clear directive"}`;
+    try{setPlan(await callChat(accessCode,system,`Generate weekly plan for @${handle}. ${dataContext}`));}catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  function copyBrief(brief,i){navigator.clipboard.writeText(`${brief.day} — ${brief.type}\nWhere: ${brief.location}\nShoot: ${brief.subject}\nAngle: ${brief.angle}\nStory: ${brief.story}\nHook: "${brief.caption_hook}"`);setCopied(i);setTimeout(()=>setCopied(null),2000);}
+  return(
+    <div>
+      <div style={{alignItems:'flex-start',display:'flex',gap:16,justifyContent:'space-between',marginBottom:24}}>
+        <p style={{color:'var(--muted)',fontSize:14,lineHeight:1.65}}>{posts&&posts.length>0?`Building your plan from ${posts.length} real posts.`:'No data yet. Run Analyze first for a data-driven plan.'}</p>
+        <Btn onClick={generate} disabled={loading} style={{whiteSpace:'nowrap',flexShrink:0}}>{loading?'Planning...':plan?'Regenerate':'Generate This Week'}</Btn>
+      </div>
+      {err&&<p style={{color:'var(--red)',fontSize:13,marginBottom:16}}>{err}</p>}
+      {plan&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <Card accent><div style={{color:'var(--muted)',fontSize:10,letterSpacing:'0.09em',marginBottom:6,textTransform:'uppercase'}}>This Week</div><div style={{fontFamily:'var(--font-d)',fontSize:22,fontWeight:700}}>{plan.week_theme}</div></Card>
+        <div style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr 1fr'}}>{[{label:"What's working",val:plan.whats_working,color:'var(--green)'},{label:'Pull back on',val:plan.whats_not,color:'var(--red)'},{label:'Week focus',val:plan.this_week_focus,color:'var(--tan)'}].map(c=><Card key={c.label}><div style={{color:c.color,fontSize:10,fontWeight:600,letterSpacing:'0.08em',marginBottom:8,textTransform:'uppercase'}}>{c.label}</div><p style={{fontSize:13,lineHeight:1.55}}>{c.val}</p></Card>)}</div>
+        <div style={{color:'var(--muted)',fontSize:10,fontWeight:600,letterSpacing:'0.09em',textTransform:'uppercase'}}>Shoot Briefs</div>
+        {plan.briefs&&plan.briefs.map((brief,i)=><Card key={i}><div style={{alignItems:'center',display:'flex',justifyContent:'space-between',marginBottom:14}}><div style={{alignItems:'center',display:'flex',gap:10}}><span style={{fontFamily:'var(--font-d)',fontSize:16,fontWeight:700}}>{brief.day}</span><Tag color={typeColor[brief.type]}>{brief.type}</Tag></div><button onClick={()=>copyBrief(brief,i)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:6,color:copied===i?'var(--green)':'var(--muted)',fontSize:12,padding:'4px 10px',transition:'color 0.2s'}}>{copied===i?'Copied!':'Copy brief'}</button></div><div style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr'}}>{[['Where',brief.location],['Shoot',brief.subject],['Angle',brief.angle],['Story',brief.story]].map(([label,val])=><div key={label}><div style={{color:'var(--dim)',fontSize:10,letterSpacing:'0.06em',marginBottom:4,textTransform:'uppercase'}}>{label}</div><p style={{fontSize:13,lineHeight:1.5}}>{val}</p></div>)}</div><div style={{background:'var(--surface-2)',borderRadius:8,marginTop:12,padding:'10px 14px'}}><div style={{color:'var(--dim)',fontSize:10,letterSpacing:'0.06em',marginBottom:4,textTransform:'uppercase'}}>Caption hook</div><p style={{color:'var(--tan)',fontSize:14,fontStyle:'italic',lineHeight:1.5}}>{brief.caption_hook}</p></div></Card>)}
+      </div>}
+    </div>
+  );
+}
+
+function SimulateTab({accessCode,handle,posts}){
+  const[idea,setIdea]=useState('');const[loading,setLoading]=useState(false);const[result,setResult]=useState(null);const[err,setErr]=useState('');
+  async function simulate(){
+    if(!idea.trim())return;
+    setLoading(true);setErr('');setResult(null);
+    const dataContext=posts&&posts.length?`Post data: ${summarizePosts(posts)}. Top posts:\n${topPosts(posts,5)}`:'No post data available.';
+    const system=`You are an Instagram performance predictor. Based on an account's historical post data, predict how a new content idea will perform. Be specific and honest. Return ONLY valid JSON: {"score":75,"verdict":"Will perform","confidence":"High","strengths":["reason 1","reason 2"],"weaknesses":["concern 1"],"suggested_improvements":["improvement 1","improvement 2"],"predicted_engagement":"above/below/on par with average","best_format":"Reel/Photo/Carousel and why","best_time":"best day and time to post"}`;
+    try{setResult(await callChat(accessCode,system,`Account: @${handle}\n${dataContext}\nContent idea: ${idea}`));}catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  const scoreColor=result?(result.score>=70?'var(--green)':result.score>=40?'var(--tan)':'var(--red)'):'var(--accent)';
+  return(
+    <div>
+      <p style={{color:'var(--muted)',fontSize:14,lineHeight:1.65,marginBottom:20}}>Describe a content idea before you shoot it. Get a prediction on how it will perform based on your history.</p>
+      <textarea rows={5} placeholder="e.g. A reel of me riding through the city at sunrise, caption about how mornings feel different here..." value={idea} onChange={e=>setIdea(e.target.value)} style={{marginBottom:16}} />
+      {err&&<p style={{color:'var(--red)',fontSize:13,marginBottom:12}}>{err}</p>}
+      <Btn onClick={simulate} disabled={loading||!idea.trim()}>{loading?'Predicting...':'Simulate Performance'}</Btn>
+      {result&&<div style={{display:'flex',flexDirection:'column',gap:14,marginTop:24}}>
+        <Card accent style={{textAlign:'center'}}><div style={{color:scoreColor,fontFamily:'var(--font-d)',fontSize:56,fontWeight:700,lineHeight:1}}>{result.score}</div><div style={{color:'var(--muted)',fontSize:12,letterSpacing:'0.07em',marginBottom:8,textTransform:'uppercase'}}>Performance Score</div><div style={{color:scoreColor,fontSize:16,fontWeight:600}}>{result.verdict}</div>{result.confidence&&<div style={{color:'var(--muted)',fontSize:13,marginTop:4}}>{result.confidence} confidence</div>}</Card>
+        <div style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr'}}><Card><div style={{color:'var(--green)',fontSize:10,fontWeight:600,letterSpacing:'0.08em',marginBottom:10,textTransform:'uppercase'}}>Strengths</div>{result.strengths&&result.strengths.map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.5,marginBottom:6}}>• {s}</p>)}</Card><Card><div style={{color:'var(--red)',fontSize:10,fontWeight:600,letterSpacing:'0.08em',marginBottom:10,textTransform:'uppercase'}}>Weaknesses</div>{result.weaknesses&&result.weaknesses.map((w,i)=><p key={i} style={{fontSize:13,lineHeight:1.5,marginBottom:6}}>• {w}</p>)}</Card></div>
+        <Card><Label>How to Improve It</Label>{result.suggested_improvements&&result.suggested_improvements.map((s,i)=><div key={i} style={{alignItems:'flex-start',display:'flex',gap:10,marginBottom:i<result.suggested_improvements.length-1?8:0}}><span style={{color:'var(--accent)',flexShrink:0,fontWeight:700}}>{i+1}.</span><p style={{fontSize:14,lineHeight:1.5}}>{s}</p></div>)}</Card>
+        <div style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr'}}>{result.best_format&&<Card><Label>Best Format</Label><p style={{fontSize:14,lineHeight:1.5}}>{result.best_format}</p></Card>}{result.best_time&&<Card><Label>Best Time to Post</Label><p style={{fontSize:14,lineHeight:1.5}}>{result.best_time}</p></Card>}</div>
+      </div>}
+    </div>
+  );
+}
+
+function CaptionTab({accessCode,handle,posts}){
+  const[desc,setDesc]=useState('');const[ctx,setCtx]=useState('');const[loading,setLoading]=useState(false);const[result,setResult]=useState(null);const[err,setErr]=useState('');const[copied,setCopied]=useState(null);
+  async function generate(){
+    if(!desc.trim())return;
+    setLoading(true);setErr('');setResult(null);
+    const topPostsCtx=posts&&posts.length?`\nTop posts for style reference:\n${topPosts(posts,3)}`:'';
+    const system=`You are a ghostwriter for @${handle}. Study their top posts for voice and style. Rules: NO em dashes. No cliches. Specific beats generic. Don't start with "I". Hook first. No hashtags. Return ONLY valid JSON: {"captions":[{"style":"Observational","caption":"..."},{"style":"Punchy","caption":"..."},{"style":"Story","caption":"..."}]}`;
+    try{setResult(await callChat(accessCode,system,`Photo/moment: ${desc}\nContext: ${ctx||'none'}${topPostsCtx}`));}catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  function copy(text,id){navigator.clipboard.writeText(text);setCopied(id);setTimeout(()=>setCopied(null),2000);}
+  return(
+    <div>
+      <p style={{color:'var(--muted)',fontSize:14,lineHeight:1.65,marginBottom:20}}>Describe the photo or moment. Three caption options come back in your voice.</p>
+      <textarea rows={4} placeholder="e.g. just got off the bike after riding through the city at sunrise, nobody else out yet..." value={desc} onChange={e=>setDesc(e.target.value)} style={{marginBottom:10}} />
+      <input placeholder="Extra context (optional)..." value={ctx} onChange={e=>setCtx(e.target.value)} style={{marginBottom:16}} />
+      <Btn onClick={generate} disabled={loading||!desc.trim()}>{loading?'Writing...':'Generate Captions'}</Btn>
+      {err&&<p style={{color:'var(--red)',fontSize:13,marginTop:12}}>{err}</p>}
+      {result&&result.captions&&result.captions.map((cap,i)=><Card key={i} style={{marginTop:16}}><div style={{alignItems:'center',display:'flex',justifyContent:'space-between',marginBottom:14}}><Tag>{cap.style}</Tag><button onClick={()=>copy(cap.caption,i)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:6,color:copied===i?'var(--green)':'var(--muted)',fontSize:12,padding:'4px 12px',transition:'color 0.2s'}}>{copied===i?'Copied!':'Copy'}</button></div><p style={{fontSize:14,lineHeight:1.75,whiteSpace:'pre-wrap'}}>{cap.caption}</p></Card>)}
+    </div>
+  );
+}
+
+function ResearchTab({accessCode,handle}){
+  const[query,setQuery]=useState('');const[loading,setLoading]=useState(false);const[result,setResult]=useState(null);const[err,setErr]=useState('');
+  async function research(){
+    if(!query.trim())return;
+    setLoading(true);setErr('');setResult(null);
+    const system=`You are an Instagram growth strategist for @${handle}. Return strategy insights and hashtag research. Return ONLY valid JSON: {"insights":["...","...","..."],"series_ideas":[{"title":"...","description":"..."},{"title":"...","description":"..."}],"hashtags":{"large":["t1","t2","t3"],"medium":["t1","t2","t3"],"small":["t1","t2","t3"]},"best_times":"...","content_gap":"..."}`;
+    try{setResult(await callChat(accessCode,system,query));}catch(e){setErr(e.message);}
+    setLoading(false);
+  }
+  return(
+    <div>
+      <p style={{color:'var(--muted)',fontSize:14,lineHeight:1.65,marginBottom:20}}>Research a topic, niche, or creator. Get strategy insights, series ideas, and tiered hashtags.</p>
+      <div style={{display:'flex',gap:8,marginBottom:24}}><input placeholder='"travel content creators" or "coffee shop reels"' value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&research()} style={{flex:1}} /><Btn onClick={research} disabled={loading||!query.trim()} style={{whiteSpace:'nowrap'}}>{loading?'Researching...':'Research'}</Btn></div>
+      {err&&<p style={{color:'var(--red)',fontSize:13}}>{err}</p>}
+      {result&&<div style={{display:'flex',flexDirection:'column',gap:14}}>
+        {result.insights&&<Card><Label>Strategy Insights</Label>{result.insights.map((ins,i)=><div key={i} style={{alignItems:'flex-start',display:'flex',gap:12,marginBottom:i<result.insights.length-1?10:0}}><span style={{color:'var(--accent)',flexShrink:0,fontWeight:700}}>{i+1}.</span><p style={{fontSize:14,lineHeight:1.65}}>{ins}</p></div>)}</Card>}
+        {result.content_gap&&<Card accent><Label>Content Gap</Label><p style={{fontSize:14,lineHeight:1.65}}>{result.content_gap}</p></Card>}
+        {result.series_ideas&&result.series_ideas.length>0&&<div style={{display:'grid',gap:12,gridTemplateColumns:'1fr 1fr'}}>{result.series_ideas.map((s,i)=><Card key={i}><div style={{fontFamily:'var(--font-d)',fontSize:15,marginBottom:8}}>{s.title}</div><p style={{color:'var(--muted)',fontSize:13,lineHeight:1.6}}>{s.description}</p></Card>)}</div>}
+        {result.hashtags&&<Card><Label>Hashtag Strategy</Label>{[{label:'Large (500k+)',key:'large',color:'var(--muted)'},{label:'Medium (100–500k)',key:'medium',color:'var(--tan)'},{label:'Niche (under 100k)',key:'small',color:'var(--accent)'}].map(tier=>result.hashtags[tier.key]&&result.hashtags[tier.key].length>0&&<div key={tier.key} style={{marginBottom:12}}><div style={{color:'var(--dim)',fontSize:10,letterSpacing:'0.06em',marginBottom:6,textTransform:'uppercase'}}>{tier.label}</div><div style={{display:'flex',flexWrap:'wrap',gap:5}}>{result.hashtags[tier.key].map(tag=><span key={tag} style={{background:'var(--surface-2)',borderRadius:5,color:tier.color,fontSize:12,padding:'2px 8px'}}>{'#'+tag}</span>)}</div></div>)}</Card>}
+      </div>}
+    </div>
+  );
+}
+
+const TABS=['Analyze','Autopilot','Simulate','Caption AI','Research'];
+
+function AppScreen({accessCode,handle,posts,onSwitchAccount}){
+  const[tab,setTab]=useState(0);
+  return(
+    <div style={{minHeight:'100vh',paddingBottom:80}}>
+      <div style={{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'16px 24px'}}>
+        <div style={{alignItems:'center',display:'flex',justifyContent:'space-between',margin:'0 auto',maxWidth:780}}>
+          <div style={{alignItems:'center',display:'flex',gap:12}}>
+            <div style={{background:'linear-gradient(135deg,var(--accent),#f0943a)',borderRadius:10,padding:'8px 10px'}}><span style={{color:'white',fontSize:14,fontWeight:700}}>IG</span></div>
+            <div><div style={{fontFamily:'var(--font-d)',fontSize:18,fontWeight:700}}>IG Optimize</div><div style={{color:'var(--muted)',fontSize:12}}>@{handle}</div></div>
+          </div>
+          <button onClick={onSwitchAccount} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:8,color:'var(--muted)',fontSize:13,padding:'6px 14px'}}>Switch Account</button>
+        </div>
+      </div>
+      <div style={{margin:'0 auto',maxWidth:780,padding:'24px 24px 0'}}>
+        <div style={{background:'var(--surface)',borderRadius:12,display:'flex',gap:3,marginBottom:28,padding:4}}>
+          {TABS.map((t,i)=><button key={t} onClick={()=>setTab(i)} style={{background:tab===i?'var(--accent)':'transparent',border:'none',borderRadius:9,color:tab===i?'white':'var(--muted)',flex:1,fontFamily:'var(--font)',fontSize:13,fontWeight:tab===i?600:400,padding:'9px 4px',transition:'all 0.15s'}}>{t}</button>)}
+        </div>
+        {tab===0&&<AnalyzeTab accessCode={accessCode} handle={handle} posts={posts} />}
+        {tab===1&&<AutopilotTab accessCode={accessCode} handle={handle} posts={posts} />}
+        {tab===2&&<SimulateTab accessCode={accessCode} handle={handle} posts={posts} />}
+        {tab===3&&<CaptionTab accessCode={accessCode} handle={handle} posts={posts} />}
+        {tab===4&&<ResearchTab accessCode={accessCode} handle={handle} />}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const[screen,setScreen]=useState('login');
+  const[accessCode,setAccessCode]=useState('');
+  const[handle,setHandle]=useState('');
+  const[posts,setPosts]=useState(null);
+  useEffect(()=>{
+    const code=ls('igo_access_code');const h=ls('igo_handle');
+    if(code){setAccessCode(code);if(h){setHandle(h);const p=ls(`igo_posts_${h}`);if(p){setPosts(p);setScreen('app');}else setScreen('setup');}else setScreen('setup');}
+  },[]);
+  function handleLogin(code){setAccessCode(code);lsSet('igo_access_code',code);const h=ls('igo_handle');if(h){setHandle(h);const p=ls(`igo_posts_${h}`);if(p){setPosts(p);setScreen('app');}else setScreen('setup');}else setScreen('setup');}
+  function handleSetup(h,p){setHandle(h);setPosts(p);lsSet('igo_handle',h);setScreen('app');}
+  function switchAccount(){lsSet('igo_handle',null);setHandle('');setPosts(null);setScreen('setup');}
+  if(screen==='login')return<LoginScreen onLogin={handleLogin}/>;
+  if(screen==='setup')return<SetupScreen accessCode={accessCode} onSetup={handleSetup}/>;
+  return<AppScreen accessCode={accessCode} handle={handle} posts={posts} onSwitchAccount={switchAccount}/>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
